@@ -1,0 +1,41 @@
+# Backup + keep-alive (spec §8.2). Belongs in the PRIVATE calorie-tracker-backup
+# repo, not here — it needs the Supabase secret key, which bypasses RLS.
+# Twice a week beats Supabase's 7-day inactivity pause, so the REST reads double
+# as the heartbeat that keeps the free project awake.
+name: backup
+
+on:
+  schedule:
+    - cron: "0 12 * * 1,4"   # Mon & Thu, 12:00 UTC
+  workflow_dispatch:          # manual run button
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export tables
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p backups
+          for t in foods log_entries settings; do
+            curl -sf "$SUPABASE_URL/rest/v1/$t?select=*" \
+              -H "apikey: $SUPABASE_SECRET_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SECRET_KEY" \
+              -o "backups/$t.json"
+            # fail loudly on empty/short output so a broken export can't
+            # silently overwrite good backups
+            test "$(wc -c < backups/$t.json)" -ge 2
+          done
+      - name: Commit if changed
+        run: |
+          git config user.name  "backup-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add backups
+          git diff --cached --quiet || git commit -m "backup $(date -u +%F)"
+          git push
