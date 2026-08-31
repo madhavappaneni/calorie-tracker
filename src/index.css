@@ -79,7 +79,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 
 .content {
   padding: var(--pad);
-  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 24px);
+  padding-bottom: 24px;
 }
 
 .boot {
@@ -96,7 +96,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   right: 0;
   bottom: 0;
   z-index: 30;
+  /* Solid first: a browser without color-mix() would otherwise fall back to a
+     transparent bar with the page scrolling through it. */
+  background: var(--surface);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px); /* unprefixed lands in Safari 18 */
   backdrop-filter: saturate(1.4) blur(12px);
   border-top: 1px solid var(--border);
   padding-bottom: env(safe-area-inset-bottom);
@@ -137,6 +141,40 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 
 /* Phone: cards run edge to edge (spec §3.1), and form buttons go full width. */
 @media (max-width: 639px) {
+  /* App-shell scrolling: the shell is exactly one viewport tall and never
+     scrolls — only the content area does, and the tab bar is an ordinary flex
+     item rather than a fixed overlay. Mobile browsers move their own toolbars
+     in and out of the viewport, which makes `position: fixed; bottom: 0` over a
+     scrolling document unreliable (it can end up behind Safari's bottom bar, or
+     vanish outright where fixed + backdrop-filter misbehaves). An inner scroll
+     container sidesteps all of it: the bar cannot be scrolled away, because the
+     page underneath it never moves. */
+  html, body { height: 100%; overflow: hidden; }
+
+  .app {
+    height: 100vh; /* fallback before dvh */
+    height: 100dvh; /* tracks the toolbar showing and hiding */
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Nav is first in the DOM so it reads first for assistive tech; order puts it
+     at the foot of the shell visually. */
+  .content {
+    order: 1;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav {
+    order: 2;
+    position: static;
+    flex: none;
+  }
+
   .form-actions { flex-direction: column; align-items: stretch; }
   .form-actions .btn { width: 100%; }
 
