@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { Field, NumberInput, ServingStepper } from './ui';
+import { VoiceEntry } from './VoiceEntry';
 import { parseNum } from '../lib/format';
 import type { FoodDraft } from '../lib/types';
 
@@ -70,8 +71,23 @@ export function FoodForm({
     });
   };
 
+  /** Voice fills only what it actually heard — a field it could not parse keeps
+   *  whatever is already typed there. */
+  const applySpoken = (spoken: Partial<FoodDraft>) => {
+    if (spoken.name) setName(spoken.name);
+    if (spoken.serving_desc) setServingDesc(spoken.serving_desc);
+    if (spoken.calories !== undefined) setCalories(String(spoken.calories));
+    if (spoken.protein_g !== undefined) setProtein(String(spoken.protein_g));
+    if (spoken.carbs_g !== undefined) setCarbs(String(spoken.carbs_g));
+    if (spoken.fat_g !== undefined) setFat(String(spoken.fat_g));
+    if (spoken.fiber_g !== undefined && spoken.fiber_g !== null) setFiber(String(spoken.fiber_g));
+    setError(null);
+  };
+
   return (
     <form className="food-form" onSubmit={submit}>
+      <VoiceEntry onParsed={applySpoken} />
+
       <Field label="Name">
         <input
           value={name}
