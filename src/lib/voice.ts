@@ -31,8 +31,18 @@ const MEASURES = [
   'cups', 'cup', 'tablespoons', 'tablespoon', 'tbsp', 'teaspoons', 'teaspoon', 'tsp',
   'slices', 'slice', 'pieces', 'piece', 'scoops', 'scoop', 'bars', 'bar',
   'bowls', 'bowl', 'cans', 'can', 'bottles', 'bottle', 'servings', 'serving',
-  'grams', 'gram', 'ounces', 'ounce', 'oz', 'ml', 'millilitres', 'milliliters',
+  'grams', 'gram', 'ounces', 'ounce', 'oz', 'ml', 'millilitres', 'milliliters', 'g',
 ];
+
+const QTY = String.raw`(?:\d+(?:[.,]\d+)?|${Object.keys(WORD_NUMBERS).join('|')})`;
+
+const asCount = (raw: string): number => {
+  const key = raw.toLowerCase();
+  return WORD_NUMBERS[key] ?? toNumber(raw);
+};
+
+const asServing = (qty: string | undefined, measure: string): string =>
+  `${qty ? asCount(qty) : 1} ${measure.toLowerCase()}`;
 
 const toNumber = (raw: string): number => Number(raw.replace(',', '.'));
 
@@ -56,18 +66,41 @@ function findNutrient(text: string, nutrient: Nutrient): { value: number; span: 
   return null;
 }
 
-/** "one cup of brown rice" -> serving "1 cup", name "brown rice". */
+/** An explicitly announced serving: "per 100 grams", "serving is 1 cup", "per bar".
+ *  The marker word is what makes a bare measure safe to read here. */
+function findServing(text: string): { serving: string; span: Span } | null {
+  const re = new RegExp(
+    `\\b(?:per|for|each|serving(?:\\s+(?:is|of|size))?)\\s+(?:(${QTY})\\s+)?(${MEASURES.join('|')})\\b`,
+    'i',
+  );
+  const m = re.exec(text);
+  if (!m || m.index === undefined) return null;
+  return {
+    serving: asServing(m[1], m[2]),
+    span: { start: m.index, end: m.index + m[0].length },
+  };
+}
+
+/** A measure folded into the name: "one cup of brown rice" or "greek yogurt one
+ *  cup" -> serving "1 cup". A quantity is required in both positions — without
+ *  it, "protein bar" would be read as one bar of "protein". */
 function splitServing(name: string): { serving?: string; rest: string } {
-  const qty = `(\\d+(?:[.,]\\d+)?|${Object.keys(WORD_NUMBERS).join('|')})`;
-  const re = new RegExp(`^${qty}\\s+(${MEASURES.join('|')})\\b\\s*(?:of\\s+)?`, 'i');
-  const m = re.exec(name);
-  if (!m) return { rest: name };
-  const rest = name.slice(m[0].length).trim();
-  // "two eggs" is the food itself, not a serving of something — keep it whole.
-  if (!rest) return { rest: name };
-  const raw = m[1].toLowerCase();
-  const count = WORD_NUMBERS[raw] ?? toNumber(raw);
-  return { serving: `${count} ${m[2].toLowerCase()}`, rest };
+  const leading = new RegExp(`^(${QTY})\\s+(${MEASURES.join('|')})\\b\\s*(?:of\\s+)?`, 'i');
+  const lead = leading.exec(name);
+  if (lead) {
+    const rest = name.slice(lead[0].length).trim();
+    // "two eggs" is the food itself, not a serving of something — keep it whole.
+    if (rest) return { serving: asServing(lead[1], lead[2]), rest };
+  }
+
+  const trailing = new RegExp(`\\s+(${QTY})\\s+(${MEASURES.join('|')})$`, 'i');
+  const trail = trailing.exec(name);
+  if (trail && trail.index !== undefined) {
+    const rest = name.slice(0, trail.index).trim();
+    if (rest) return { serving: asServing(trail[1], trail[2]), rest };
+  }
+
+  return { rest: name };
 }
 
 /** A connector word or stray punctuation, as a whole token — \b keeps "Ofada
@@ -85,15 +118,25 @@ function tidy(fragment: string): string {
     .trim();
 }
 
-/** The name is whatever precedes the first number — people say the food first and
- *  the macros after. If they inverted it ("220 calories of oatmeal"), fall back to
- *  whatever trails the last one. */
+/** The name is whatever precedes the first parsed value — people say the food
+ *  first and the numbers after, so the prefix wins whenever there is one. When
+ *  the phrase opens with a number or a serving instead ("220 calories of
+ *  oatmeal", "serving is 2 slices of toast"), fall back to the longest run of
+ *  words left between the parsed spans. */
 function extractName(text: string, spans: Span[]): string {
   if (spans.length === 0) return tidy(text);
   const sorted = [...spans].sort((a, b) => a.start - b.start);
-  const before = tidy(text.slice(0, sorted[0].start));
-  if (before) return before;
-  return tidy(text.slice(Math.max(...sorted.map((s) => s.end))));
+
+  const prefix = tidy(text.slice(0, sorted[0].start));
+  if (prefix) return prefix;
+
+  const gaps: string[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const from = sorted[i].end;
+    const to = i + 1 < sorted.length ? sorted[i + 1].start : text.length;
+    if (to > from) gaps.push(tidy(text.slice(from, to)));
+  }
+  return gaps.sort((a, b) => b.length - a.length)[0] ?? '';
 }
 
 export interface SpokenFood {
@@ -126,11 +169,19 @@ export function parseSpokenFood(transcript: string): SpokenFood {
     found.push(labels[nutrient]);
   }
 
+  // An announced serving is cut out before the name is read, so "paneer per 100
+  // grams" does not end up named "paneer per 100 grams".
+  const announced = findServing(text);
+  if (announced) {
+    draft.serving_desc = announced.serving;
+    spans.push(announced.span);
+    found.push('serving');
+  }
+
   const leftover = extractName(text, spans);
   if (leftover) {
-    const { serving, rest } = splitServing(leftover);
-    const name = rest.charAt(0).toUpperCase() + rest.slice(1);
-    draft.name = name;
+    const { serving, rest } = announced ? { serving: undefined, rest: leftover } : splitServing(leftover);
+    draft.name = rest.charAt(0).toUpperCase() + rest.slice(1);
     found.unshift('name');
     if (serving) {
       draft.serving_desc = serving;

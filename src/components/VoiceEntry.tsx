@@ -41,10 +41,13 @@ export function VoiceEntry({ onParsed }: { onParsed: (draft: Partial<FoodDraft>)
           <MicIcon />
           {listening ? 'Listening — tap to stop' : 'Speak it'}
         </button>
-        {!listening && !summary ? (
-          <span className="muted small">“chicken breast 220 calories 40 protein 5 carbs 8 fat”</span>
-        ) : null}
       </div>
+
+      {/* The example stays put while recording — it is the script to read from,
+          so hiding it the moment the mic opens removes it exactly when needed. */}
+      <p className="voice-example">
+        Try: “one cup of greek yogurt, 190 calories, 20 protein, 8 carbs, 5 fat”
+      </p>
 
       {speech.transcript ? <p className="voice-transcript">“{speech.transcript}”</p> : null}
       {speech.message ? <p className="error small">{speech.message}</p> : null}

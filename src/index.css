@@ -435,7 +435,7 @@ input[type='checkbox'] { width: auto; min-height: 0; }
 .voice-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; }
 .voice-btn.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .voice-btn.on svg { animation: pulse 1.1s ease-in-out infinite; }
-.voice-head .muted { flex: 1; min-width: 0; font-style: italic; }
+.voice-example { margin-top: 8px; font-size: 0.82rem; color: var(--muted); font-style: italic; }
 .voice-transcript { margin-top: 8px; font-size: 0.92rem; }
 .voice .error, .voice > .muted { margin-top: 8px; }
 
